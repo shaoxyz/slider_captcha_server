@@ -38,7 +38,7 @@ English | [中文文档](./README_CN.md)
 ### 安装
 
 ```bash
-git clone https://github.com/shaoxyz/slider_captcha_server
+git clone https://github.com/BrianTV98/slider_captcha_server
 cd slider_captcha_server
 ```
 
@@ -413,7 +413,7 @@ GPL-3.0 许可证 - 详见 [LICENSE](LICENSE)
 
 ## 📧 支持
 
-如果遇到任何问题或有疑问，请[提交 issue](https://github.com/shaoxyz/slider_captcha_server/issues)。
+如果遇到任何问题或有疑问，请[提交 issue](https://github.com/BrianTV98/slider_captcha_server/issues)。
 
 ---
 

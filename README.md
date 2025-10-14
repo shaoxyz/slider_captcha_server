@@ -38,7 +38,7 @@ Tested on: 4-core CPU, 8GB RAM
 ### Installation
 
 ```bash
-git clone https://github.com/shaoxyz/slider_captcha_server
+git clone https://github.com/BrianTV98/slider_captcha_server
 cd slider_captcha_server
 ```
 
@@ -413,7 +413,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📧 Support
 
-If you encounter any issues or have questions, please [open an issue](https://github.com/shaoxyz/slider_captcha_server/issues).
+If you encounter any issues or have questions, please [open an issue](https://github.com/BrianTV98/slider_captcha_server/issues).
 
 ---
 
