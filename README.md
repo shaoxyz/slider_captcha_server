@@ -5,7 +5,7 @@
 A high-performance slider captcha puzzle creation and verification server designed for the [Flutter slider_captcha](https://pub.dev/packages/slider_captcha) component.
 
 <div align="center">
-  <img src="test/generated_puzzle.png" alt="Puzzle Example" width="400"/>
+  <img src="test/example_puzzle.png" alt="Puzzle Example" width="400"/>
   <p><i>Example of generated captcha puzzle</i></p>
 </div>
 
@@ -38,7 +38,7 @@ Tested on: 4-core CPU, 8GB RAM
 ### Installation
 
 ```bash
-git clone https://github.com/yourusername/slider_captcha_server
+git clone https://github.com/shaoxyz/slider_captcha_server
 cd slider_captcha_server
 ```
 
@@ -413,7 +413,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📧 Support
 
-If you encounter any issues or have questions, please [open an issue](https://github.com/yourusername/slider_captcha_server/issues).
+If you encounter any issues or have questions, please [open an issue](https://github.com/shaoxyz/slider_captcha_server/issues).
 
 ---
 

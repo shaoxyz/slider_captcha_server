@@ -5,7 +5,7 @@ English | [中文文档](./README_CN.md)
 为 [Flutter slider_captcha](https://pub.dev/packages/slider_captcha) 组件设计的高性能滑块验证码生成与验证服务器。
 
 <div align="center">
-  <img src="test/generated_puzzle.png" alt="验证码示例" width="400"/>
+  <img src="test/example_puzzle.png" alt="验证码示例" width="400"/>
   <p><i>生成的验证码示例</i></p>
 </div>
 
@@ -20,15 +20,16 @@ English | [中文文档](./README_CN.md)
 
 ## 📊 性能指标
 
-| 指标 | 目标 | 实际表现 |
-|------|------|----------|
-| QPS | ≥500 | **502+** ✅ |
-| 成功率 | ≥99% | **99.9%** ✅ |
-| P50延迟 | <20ms | **~15ms** ✅ |
-| P95延迟 | <50ms | **~35ms** ✅ |
-| P99延迟 | <100ms | **~60ms** ✅ |
+
+| 指标               | 目标   | 实际表现     |
+| ------------------ | ------ | ------------ |
+| QPS                | ≥500  | **502+** ✅  |
+| 成功率             | ≥99%  | **99.9%** ✅ |
+| P50延迟            | <20ms  | **~15ms** ✅ |
+| P95延迟            | <50ms  | **~35ms** ✅ |
+| P99延迟            | <100ms | **~60ms** ✅ |
 | 内存占用 (500 QPS) | <200MB | **<50MB** ✅ |
-| 图片大小 | - | **4-14KB** |
+| 图片大小           | -      | **4-14KB**   |
 
 测试环境: 4核CPU, 8GB RAM
 
@@ -37,7 +38,7 @@ English | [中文文档](./README_CN.md)
 ### 安装
 
 ```bash
-git clone https://github.com/yourusername/slider_captcha_server
+git clone https://github.com/shaoxyz/slider_captcha_server
 cd slider_captcha_server
 ```
 
@@ -58,6 +59,7 @@ curl http://127.0.0.1:8080/puzzle
 ```
 
 **响应:**
+
 ```json
 {
   "puzzle_image": "iVBORw0KGgoAAAANSUhEUgAA...",  // base64 编码
@@ -68,6 +70,7 @@ curl http://127.0.0.1:8080/puzzle
 ```
 
 **自定义尺寸:**
+
 ```bash
 curl "http://127.0.0.1:8080/puzzle?w=800&h=400"
 ```
@@ -81,6 +84,7 @@ curl -X POST http://127.0.0.1:8080/puzzle/solution \
 ```
 
 **成功响应:**
+
 ```json
 {
   "success": true,
@@ -95,6 +99,7 @@ curl http://127.0.0.1:8080/health
 ```
 
 **响应:**
+
 ```json
 {
   "status": "healthy",
@@ -123,6 +128,7 @@ for y in 0..height {
 ```
 
 **优势:**
+
 - 高度可压缩（渐变模式）
 - 每次唯一（随机颜色）
 - 无需存储（按需生成）
@@ -130,6 +136,7 @@ for y in 0..height {
 ### 2. 缓存过期机制（三层防护）
 
 #### 第一层：时间戳标记
+
 ```rust
 struct CacheEntry {
     solution: f64,
@@ -138,6 +145,7 @@ struct CacheEntry {
 ```
 
 #### 第二层：验证时检查
+
 ```rust
 if entry.expires_at <= now {
     return Err("验证码已过期");
@@ -145,6 +153,7 @@ if entry.expires_at <= now {
 ```
 
 #### 第三层：后台清理
+
 ```rust
 // 每60秒运行一次
 async fn cleanup_task(state: State) {
@@ -157,6 +166,7 @@ async fn cleanup_task(state: State) {
 ```
 
 **为什么有效:**
+
 - 无内存泄漏（自动清理）
 - 快速验证（时间戳检查）
 - 可扩展（DashMap 并发访问）
@@ -172,6 +182,7 @@ Arc<DashMap<String, CacheEntry>>  ✅
 ```
 
 **DashMap** 使用分片锁定：
+
 - 每个分片有独立的锁
 - 读写操作不互相阻塞
 - 完美适用于高并发场景
@@ -279,6 +290,7 @@ CMD ["/app/server"]
 ```
 
 构建和运行:
+
 ```bash
 docker build -t slider-captcha .
 docker run -p 8080:8080 slider-captcha
@@ -305,6 +317,7 @@ WantedBy=multi-user.target
 ```
 
 启用并启动:
+
 ```bash
 sudo systemctl enable slider-captcha
 sudo systemctl start slider-captcha
@@ -317,10 +330,12 @@ sudo systemctl start slider-captcha
 生成新的验证码。
 
 **查询参数:**
+
 - `w` (可选): 宽度像素 (默认: 500)
 - `h` (可选): 高度像素 (默认: 300)
 
 **响应:**
+
 ```typescript
 {
   puzzle_image: string,  // base64 PNG
@@ -335,6 +350,7 @@ sudo systemctl start slider-captcha
 验证验证码答案。
 
 **请求体:**
+
 ```typescript
 {
   id: string,    // 从生成接口获取
@@ -343,6 +359,7 @@ sudo systemctl start slider-captcha
 ```
 
 **成功响应:**
+
 ```typescript
 {
   success: true,
@@ -351,6 +368,7 @@ sudo systemctl start slider-captcha
 ```
 
 **错误响应:**
+
 ```typescript
 {
   success: false,
@@ -363,6 +381,7 @@ sudo systemctl start slider-captcha
 检查服务器健康状态。
 
 **响应:**
+
 ```typescript
 {
   status: "healthy",
@@ -376,6 +395,7 @@ sudo systemctl start slider-captcha
 本项目为 [Flutter slider_captcha](https://pub.dev/packages/slider_captcha) 组件设计，基于 [@BrianTV98](https://github.com/BrianTV98) 的原始项目 [slider_captcha_server](https://github.com/BrianTV98/slider_captcha_server) 开发。
 
 **使用 Claude AI 进行的增强:**
+
 - ✨ 随机渐变图片生成（替代静态图片）
 - ⚡ 使用 DashMap 的高性能缓存
 - 🔒 自动过期缓存机制
@@ -393,9 +413,8 @@ GPL-3.0 许可证 - 详见 [LICENSE](LICENSE)
 
 ## 📧 支持
 
-如果遇到任何问题或有疑问，请[提交 issue](https://github.com/yourusername/slider_captcha_server/issues)。
+如果遇到任何问题或有疑问，请[提交 issue](https://github.com/shaoxyz/slider_captcha_server/issues)。
 
 ---
 
 用 ❤️ 制作，由 Claude AI 优化
-
