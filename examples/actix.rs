@@ -1,14 +1,22 @@
 extern crate slider_captcha_server;
-use actix_web::{get, post, web::{self, Data}, App, HttpResponse, HttpServer, Responder};
-use image::DynamicImage;
+use actix_web::{
+    get, post,
+    web::{self, Data, Query},
+    App, HttpResponse, HttpServer, Responder,
+};
+use image::{DynamicImage, GenericImageView};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use slider_captcha_server::{verify_puzzle, SliderPuzzle};
-use std::{collections::HashMap, path::PathBuf, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let mut app_state = State::default();
+    let app_state = State::default();
 
     println!("\nStarted slider_captcha_server on port 18080.\n");
     HttpServer::new(move || {
@@ -22,28 +30,51 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
-#[get("/puzzle")]
-async fn generate_handler(state: web::Data<State>) -> impl Responder {
-    let binding = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("test")
-        .join("archworkout.png");
-    let image_path = binding.to_str().unwrap();
+#[derive(Deserialize)]
+struct PuzzleQuery {
+    #[serde(default = "default_height")]
+    h: u32,
+    #[serde(default = "default_width")]
+    w: u32,
+}
 
-    let slider_puzzle: SliderPuzzle = match SliderPuzzle::new(image_path) {
+fn default_height() -> u32 {
+    300
+}
+fn default_width() -> u32 {
+    500
+}
+
+#[get("/puzzle")]
+async fn generate_handler(state: web::Data<State>, query: Query<PuzzleQuery>) -> impl Responder {
+    // Clean up expired cache first
+    state.cleanup_expired();
+
+    // Generate random image with provided width and height
+    let slider_puzzle: SliderPuzzle = match SliderPuzzle::from_dimensions(query.w, query.h) {
         Ok(puzzle) => puzzle,
         Err(err) => {
-            print!("!!!BAD IMAGE PATH!!!! \n{}", err);
+            print!("!!! Failed to generate image !!!! \n{err}");
             return HttpResponse::InternalServerError().body("Contact Admin.");
         }
     };
-    // // Generate a unique request ID and store the solution in the global state
+
+    // Generate unique request ID and store solution with 10-minute expiration
     let request_id = uuid::Uuid::new_v4().to_string();
     let solution = slider_puzzle.x;
-    state
-        .solutions
-        .lock()
+    let expires_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
         .unwrap()
-        .insert(request_id.clone(), solution);
+        .as_secs()
+        + 600; // 10 minutes = 600 seconds
+
+    state.solutions.lock().unwrap().insert(
+        request_id.clone(),
+        CacheEntry {
+            solution,
+            expires_at,
+        },
+    );
 
     let response = json!({
         "puzzle_image": image_to_base64(slider_puzzle.cropped_puzzle),
@@ -61,17 +92,30 @@ async fn generate_handler(state: web::Data<State>) -> impl Responder {
 
 #[post("/puzzle/solution")]
 async fn verify_handler(state: Data<State>, solution: web::Json<Solution>) -> impl Responder {
-    // Check if the solution matches the one stored in the global state
+    // Clean up expired cache first
+    state.cleanup_expired();
+
+    // Check if solution matches
     let mut locked_state = state.solutions.lock().unwrap();
-    println!("{:?}", locked_state.clone());
 
     let correct_solution = match locked_state.get(&solution.id) {
-        Some(correct_solution) => {
+        Some(entry) => {
+            // Check if expired
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            if entry.expires_at <= now {
+                locked_state.remove(&solution.id);
+                return HttpResponse::BadRequest().body("Captcha expired");
+            }
+
             println!(
                 "SOLUTION:\nRequestID:{:?}\nx:{:?}\n",
-                solution.id, correct_solution
+                solution.id, entry.solution
             );
-            *correct_solution
+            entry.solution
         }
         _ => return HttpResponse::BadRequest().body("Invalid request ID"),
     };
@@ -83,10 +127,30 @@ async fn verify_handler(state: Data<State>, solution: web::Json<Solution>) -> im
     }
 }
 
+// Cache entry containing solution and expiration time
+#[derive(Clone)]
+struct CacheEntry {
+    solution: f64,
+    expires_at: u64, // Unix timestamp (seconds)
+}
+
 // A struct to store the global state of the application
 #[derive(Clone)]
 struct State {
-    solutions: Arc<Mutex<HashMap<String, f64>>>,
+    solutions: Arc<Mutex<HashMap<String, CacheEntry>>>,
+}
+
+impl State {
+    // Clean up expired cache entries
+    fn cleanup_expired(&self) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let mut solutions = self.solutions.lock().unwrap();
+        solutions.retain(|_, entry| entry.expires_at > now);
+    }
 }
 
 impl Default for State {
@@ -104,9 +168,28 @@ struct Solution {
 }
 
 fn image_to_base64(image: DynamicImage) -> String {
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+    use image::ColorType;
+
     let mut buffer = Vec::new();
-    image
-        .write_to(&mut buffer, image::ImageOutputFormat::Png)
+
+    // Use PNG encoder with highest compression level
+    let encoder = PngEncoder::new_with_quality(
+        &mut buffer,
+        CompressionType::Best, // Highest compression level
+        FilterType::Sub,       // Sub filter works well for gradient images
+    );
+
+    let (width, height) = image.dimensions();
+    let color_type = match &image {
+        DynamicImage::ImageRgb8(_) => ColorType::Rgb8,
+        DynamicImage::ImageRgba8(_) => ColorType::Rgba8,
+        _ => ColorType::Rgba8,
+    };
+
+    encoder
+        .encode(image.as_bytes(), width, height, color_type)
         .unwrap();
+
     base64::encode(&buffer)
 }
