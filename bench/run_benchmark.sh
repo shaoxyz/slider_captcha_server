@@ -1,77 +1,194 @@
 #!/bin/bash
 
-# 性能测试脚本
-# 测试 slider_captcha_server 的性能表现
+# Performance testing script
+# Test the performance of slider_captcha_server
 
 set -e
 
-# 颜色定义
+# Color definitions
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# 配置
+# Configuration
 HOST=${HOST:-"http://127.0.0.1:8080"}
 PUZZLE_URL="${HOST}/puzzle"
 VERIFY_URL="${HOST}/puzzle/solution"
 
+now_ms() {
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
+    else
+        echo $(( $(date +%s) * 1000 ))
+    fi
+}
+TEST_DATA_DIR="bench/test_data"
+
+# Create test data directory
+mkdir -p "${TEST_DATA_DIR}"
+
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  Slider Captcha 性能测试套件${NC}"
+echo -e "${BLUE}  Slider Captcha Performance Test Suite${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}  Test Server: ${HOST}${NC}"
+echo -e "${BLUE}  Image Save Directory: ${TEST_DATA_DIR}${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
-# 检查服务是否运行
+# Check dependencies
+if ! command -v jq &> /dev/null; then
+    echo -e "${YELLOW}Note: jq not installed, some features will be limited (cannot save images)${NC}"
+    echo -e "${YELLOW}     Install: brew install jq (macOS)${NC}"
+    echo ""
+fi
+
+# Check if service is running
 check_service() {
-    echo -e "${YELLOW}检查服务状态...${NC}"
-    if curl -s "${HOST}/health" > /dev/null 2>&1; then
-        echo -e "${GREEN}✓ 服务正在运行${NC}"
+    echo -e "${YELLOW}Checking service status...${NC}"
+    
+    # Increase timeout to 15 seconds to avoid network fluctuations
+    HEALTH_RESPONSE=$(curl -s --max-time 15 -w "\n%{http_code}" "${HOST}/health" 2>&1)
+    CURL_EXIT=$?
+    HTTP_CODE=$(echo "$HEALTH_RESPONSE" | tail -n 1)
+    
+    if [ $CURL_EXIT -eq 0 ] && [ "$HTTP_CODE" = "200" ]; then
+        echo -e "${GREEN}✓ Service is running${NC}"
+        # Display health status
+        HEALTH_BODY=$(echo "$HEALTH_RESPONSE" | sed '$d')
+        if command -v jq &> /dev/null; then
+            PREFILL_SIZES=$(echo "$HEALTH_BODY" | jq -c '.prefill_sizes' 2>/dev/null)
+            if [ "$PREFILL_SIZES" != "null" ]; then
+                echo "  Prefill sizes: ${PREFILL_SIZES}"
+            fi
+        fi
     else
-        echo -e "${RED}✗ 服务未运行，请先启动服务：${NC}"
-        echo "  cargo run --example actix_production --release"
+        echo -e "${RED}✗ Service is not running or inaccessible${NC}"
+        echo "  Service address: ${HOST}/health"
+        echo "  curl exit code: ${CURL_EXIT}"
+        echo "  HTTP status code: ${HTTP_CODE}"
+        echo ""
+        
+        # Provide specific error information based on curl exit code
+        case $CURL_EXIT in
+            28)
+                echo -e "${RED}  Error: Connection timeout${NC}"
+                echo "  Possible causes: Server overload, network latency, or server unresponsive"
+                ;;
+            7)
+                echo -e "${RED}  Error: Cannot connect to server${NC}"
+                echo "  Possible causes: Server not started, firewall blocking, or wrong address"
+                ;;
+            6)
+                echo -e "${RED}  Error: Cannot resolve hostname${NC}"
+                echo "  Possible causes: DNS resolution failed or wrong address format"
+                ;;
+            *)
+                echo -e "${RED}  Error: curl exit code ${CURL_EXIT}${NC}"
+                ;;
+        esac
+        
+        echo ""
+        echo "  Please check:"
+        echo "  1. Is the service started: cargo run --bin server --release"
+        echo "  2. Is the firewall allowing access"
+        echo "  3. Is the HOST address correct: ${HOST}"
+        echo "  4. Is the server overloaded, try again later"
+        echo ""
+        echo -e "${YELLOW}  Tip: You can try manual connection test:${NC}"
+        echo "  curl -v ${HOST}/health"
         exit 1
     fi
     echo ""
 }
 
-# 单次测试
+# Save base64 image to file
+save_base64_image() {
+    local base64_data=$1
+    local output_file=$2
+    
+    if command -v base64 &> /dev/null; then
+        echo "$base64_data" | base64 -d > "$output_file" 2>/dev/null
+        return $?
+    fi
+    return 1
+}
+
+# Single request test
 test_single_request() {
-    echo -e "${YELLOW}[1/5] 单次请求测试${NC}"
-    echo "发送单个请求并测量响应时间..."
+    echo -e "${YELLOW}[1/5] Single Request Test${NC}"
+    echo "Sending a single request and measuring response time..."
     
-    START=$(date +%s%3N)
-    RESPONSE=$(curl -s -w "\n%{http_code}\n%{time_total}" "${PUZZLE_URL}")
-    END=$(date +%s%3N)
+    START=$(now_ms)
+    # Use temporary file to avoid complex pipe processing
+    TEMP_FILE="/tmp/benchmark_response_$$"
+    curl -s --max-time 15 -w "\n__STATUS__%{http_code}\n__TIME__%{time_total}" "${PUZZLE_URL}" > "$TEMP_FILE" 2>&1
+    CURL_EXIT=$?
+    END=$(now_ms)
     
-    STATUS=$(echo "$RESPONSE" | tail -n 2 | head -n 1)
-    TIME=$(echo "$RESPONSE" | tail -n 1)
+    if [ $CURL_EXIT -ne 0 ]; then
+        echo -e "${RED}✗ Request failed, curl exit code: ${CURL_EXIT}${NC}"
+        rm -f "$TEMP_FILE"
+        echo ""
+        return
+    fi
+    
+    # Extract status code and time
+    STATUS=$(grep "__STATUS__" "$TEMP_FILE" | cut -d'_' -f5)
+    TIME=$(grep "__TIME__" "$TEMP_FILE" | cut -d'_' -f5)
+    # Get response body (excluding last two lines of status and time info)
+    BODY=$(grep -v "^__STATUS__\|^__TIME__" "$TEMP_FILE")
     
     if [ "$STATUS" = "200" ]; then
-        echo -e "${GREEN}✓ 请求成功${NC}"
-        echo "  HTTP状态码: ${STATUS}"
-        echo "  响应时间: ${TIME}s"
+        echo -e "${GREEN}✓ Request successful${NC}"
+        echo "  HTTP status code: ${STATUS}"
+        echo "  Response time: ${TIME}s"
+        
+        # Save images
+        if command -v jq &> /dev/null; then
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            PUZZLE_IMG=$(echo "$BODY" | jq -r '.puzzle_image' 2>/dev/null)
+            PIECE_IMG=$(echo "$BODY" | jq -r '.piece_image' 2>/dev/null)
+            
+            if [ "$PUZZLE_IMG" != "null" ] && [ -n "$PUZZLE_IMG" ]; then
+                save_base64_image "$PUZZLE_IMG" "${TEST_DATA_DIR}/puzzle_${TIMESTAMP}.png"
+                echo -e "${GREEN}  ✓ Puzzle image saved: ${TEST_DATA_DIR}/puzzle_${TIMESTAMP}.png${NC}"
+            fi
+            
+            if [ "$PIECE_IMG" != "null" ] && [ -n "$PIECE_IMG" ]; then
+                save_base64_image "$PIECE_IMG" "${TEST_DATA_DIR}/piece_${TIMESTAMP}.png"
+                echo -e "${GREEN}  ✓ Puzzle piece saved: ${TEST_DATA_DIR}/piece_${TIMESTAMP}.png${NC}"
+            fi
+        else
+            echo -e "${YELLOW}  Tip: Install jq to save images (brew install jq)${NC}"
+        fi
     else
-        echo -e "${RED}✗ 请求失败，状态码: ${STATUS}${NC}"
+        echo -e "${RED}✗ Request failed, status code: ${STATUS}${NC}"
     fi
+    
+    rm -f "$TEMP_FILE"
     echo ""
 }
 
-# 并发测试 - 使用curl
+# Concurrent test using curl
 test_concurrent_curl() {
-    echo -e "${YELLOW}[2/5] 并发测试 (50并发 x 100请求)${NC}"
+    echo -e "${YELLOW}[2/5] Concurrent Test (50 concurrent x 100 requests)${NC}"
     
     SUCCESS=0
     FAILED=0
     TOTAL=100
     CONCURRENT=50
     
-    echo "开始测试..."
-    START=$(date +%s%3N)
+    echo "Starting test..."
+    START=$(now_ms)
     
     for i in $(seq 1 $TOTAL); do
         (
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${PUZZLE_URL}")
+            STATUS=$(curl -s --max-time 15 -o /dev/null -w "%{http_code}" "${PUZZLE_URL}")
             if [ "$STATUS" = "200" ]; then
                 echo "SUCCESS" >> /tmp/bench_result_$$
             else
@@ -79,15 +196,19 @@ test_concurrent_curl() {
             fi
         ) &
         
-        # 控制并发数
+        # Control concurrency
         if [ $((i % CONCURRENT)) -eq 0 ]; then
             wait
         fi
     done
     wait
     
-    END=$(date +%s%3N)
-    DURATION=$(echo "scale=3; ($END - $START) / 1000" | bc)
+    END=$(now_ms)
+    DURATION_MS=$((END - START))
+    if [ $DURATION_MS -le 0 ]; then
+        DURATION_MS=1
+    fi
+    DURATION=$(echo "scale=3; $DURATION_MS / 1000" | bc)
     
     if [ -f /tmp/bench_result_$$ ]; then
         SUCCESS=$(grep -c "SUCCESS" /tmp/bench_result_$$ || true)
@@ -95,27 +216,27 @@ test_concurrent_curl() {
         rm /tmp/bench_result_$$
     fi
     
-    QPS=$(echo "scale=2; $TOTAL / $DURATION" | bc)
+    QPS=$(echo "scale=2; ($TOTAL * 1000) / $DURATION_MS" | bc)
     
-    echo -e "${GREEN}测试完成${NC}"
-    echo "  总请求数: ${TOTAL}"
-    echo "  成功: ${SUCCESS}"
-    echo "  失败: ${FAILED}"
-    echo "  总耗时: ${DURATION}s"
-    echo "  平均QPS: ${QPS}"
+    echo -e "${GREEN}Test completed${NC}"
+    echo "  Total requests: ${TOTAL}"
+    echo "  Successful: ${SUCCESS}"
+    echo "  Failed: ${FAILED}"
+    echo "  Total duration: ${DURATION}s"
+    echo "  Average QPS: ${QPS}"
     echo ""
 }
 
-# wrk压测 (如果安装了wrk)
+# wrk stress test (if wrk is installed)
 test_with_wrk() {
     if ! command -v wrk &> /dev/null; then
-        echo -e "${YELLOW}[3/5] wrk压测 - 跳过 (未安装wrk)${NC}"
-        echo "  安装wrk: brew install wrk (macOS) 或参考 https://github.com/wg/wrk"
+        echo -e "${YELLOW}[3/5] wrk Stress Test - Skipped (wrk not installed)${NC}"
+        echo "  Install wrk: brew install wrk (macOS) or refer to https://github.com/wg/wrk"
         echo ""
         return
     fi
     
-    echo -e "${YELLOW}[3/5] wrk压测 - 100连接 10秒${NC}"
+    echo -e "${YELLOW}[3/5] wrk Stress Test - 100 connections 10 seconds${NC}"
     
     if [ -f "bench/wrk_test.lua" ]; then
         wrk -t4 -c100 -d10s --latency -s bench/wrk_test.lua "${PUZZLE_URL}"
@@ -125,63 +246,122 @@ test_with_wrk() {
     echo ""
 }
 
-# 高负载测试 (500 QPS目标)
+# High load test (500 QPS target)
 test_high_load() {
     if ! command -v wrk &> /dev/null; then
-        echo -e "${YELLOW}[4/5] 高负载测试 (500 QPS) - 跳过 (需要wrk)${NC}"
+        echo -e "${YELLOW}[4/5] High Load Test (500 QPS) - Skipped (requires wrk)${NC}"
         echo ""
         return
     fi
     
-    echo -e "${YELLOW}[4/5] 高负载测试 - 目标500 QPS${NC}"
-    echo "  配置: 8线程, 200连接, 持续30秒"
+    echo -e "${YELLOW}[4/5] High Load Test - Target 500 QPS${NC}"
+    echo "  Configuration: 8 threads, 200 connections, 30 seconds duration"
     echo ""
     
     wrk -t8 -c200 -d30s --latency "${PUZZLE_URL}"
     echo ""
 }
 
-# 完整流程测试（生成+验证）
+# Full workflow test (generate + verify)
 test_full_workflow() {
-    echo -e "${YELLOW}[5/5] 完整流程测试 (生成+验证)${NC}"
+    echo -e "${YELLOW}[5/5] Full Workflow Test (Generate + Verify)${NC}"
     
-    # 生成验证码
-    echo "步骤1: 生成验证码..."
-    RESPONSE=$(curl -s "${PUZZLE_URL}")
-    ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*' | cut -d'"' -f4)
+    # Generate captcha
+    echo "Step 1: Generating captcha..."
+    RESPONSE=$(curl -s --max-time 15 "${PUZZLE_URL}")
+    CURL_EXIT=$?
     
-    if [ -z "$ID" ]; then
-        echo -e "${RED}✗ 生成验证码失败${NC}"
+    if [ $CURL_EXIT -ne 0 ] || [ -z "$RESPONSE" ]; then
+        echo -e "${RED}✗ Captcha generation failed (curl exit code: ${CURL_EXIT})${NC}"
         echo ""
         return
     fi
     
-    echo -e "${GREEN}✓ 验证码生成成功${NC}"
-    echo "  ID: ${ID}"
+    # Parse JSON using jq (if available)
+    if command -v jq &> /dev/null; then
+        ID=$(echo "$RESPONSE" | jq -r '.id' 2>/dev/null)
+        Y=$(echo "$RESPONSE" | jq -r '.y' 2>/dev/null)
+        PUZZLE_IMG=$(echo "$RESPONSE" | jq -r '.puzzle_image' 2>/dev/null)
+        PIECE_IMG=$(echo "$RESPONSE" | jq -r '.piece_image' 2>/dev/null)
+    else
+        # Fallback: use grep
+        ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*' | cut -d'"' -f4)
+    fi
     
-    # 验证（使用随机值测试）
-    echo "步骤2: 提交验证..."
+    if [ -z "$ID" ] || [ "$ID" = "null" ]; then
+        echo -e "${RED}✗ Captcha generation failed (cannot parse ID)${NC}"
+        echo "  Response: ${RESPONSE:0:200}..."
+        echo ""
+        return
+    fi
+    
+    echo -e "${GREEN}✓ Captcha generated successfully${NC}"
+    echo "  ID: ${ID}"
+    if [ -n "$Y" ] && [ "$Y" != "null" ]; then
+        echo "  Y coordinate: ${Y}"
+    fi
+    
+    # Save images to test_data directory
+    if command -v jq &> /dev/null; then
+        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        
+        if [ "$PUZZLE_IMG" != "null" ] && [ -n "$PUZZLE_IMG" ]; then
+            save_base64_image "$PUZZLE_IMG" "${TEST_DATA_DIR}/workflow_puzzle_${TIMESTAMP}.png"
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}  ✓ Puzzle image saved: ${TEST_DATA_DIR}/workflow_puzzle_${TIMESTAMP}.png${NC}"
+            fi
+        fi
+        
+        if [ "$PIECE_IMG" != "null" ] && [ -n "$PIECE_IMG" ]; then
+            save_base64_image "$PIECE_IMG" "${TEST_DATA_DIR}/workflow_piece_${TIMESTAMP}.png"
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}  ✓ Puzzle piece saved: ${TEST_DATA_DIR}/workflow_piece_${TIMESTAMP}.png${NC}"
+            fi
+        fi
+    fi
+    
+    # Verification (using random value for testing)
+    echo ""
+    echo "Step 2: Submitting verification..."
     VERIFY_DATA="{\"id\":\"${ID}\",\"x\":0.5}"
-    VERIFY_RESPONSE=$(curl -s -X POST \
+    set +e
+    VERIFY_RESPONSE=$(curl -s --max-time 15 -X POST \
         -H "Content-Type: application/json" \
         -d "${VERIFY_DATA}" \
         "${VERIFY_URL}")
+    VERIFY_EXIT=$?
+    set -e
     
-    echo "  响应: ${VERIFY_RESPONSE}"
+    if [ $VERIFY_EXIT -ne 0 ] || [ -z "$VERIFY_RESPONSE" ]; then
+        echo -e "${RED}✗ Verification request failed (curl exit code: ${VERIFY_EXIT})${NC}"
+    else
+        echo "  Response: ${VERIFY_RESPONSE}"
+        
+        # Check verification result
+        if echo "$VERIFY_RESPONSE" | grep -q '"success":true'; then
+            echo -e "${GREEN}✓ Verification successful${NC}"
+        elif echo "$VERIFY_RESPONSE" | grep -q '"success":false'; then
+            echo -e "${YELLOW}○ Verification failed (expected, using random x value)${NC}"
+        elif echo "$VERIFY_RESPONSE" | grep -q 'VERIFIED'; then
+            echo -e "${GREEN}✓ Verification successful${NC}"
+        elif echo "$VERIFY_RESPONSE" | grep -q 'Incorrect'; then
+            echo -e "${YELLOW}○ Verification failed (expected, using random x value)${NC}"
+        fi
+    fi
     echo ""
 }
 
-# 内存使用监控
+# Memory usage monitoring
 monitor_memory() {
-    echo -e "${YELLOW}提示: 性能测试建议${NC}"
-    echo "  1. 使用 --release 模式编译运行服务"
-    echo "  2. 监控内存使用: watch -n 1 'ps aux | grep actix_production'"
-    echo "  3. 监控缓存状态: curl ${HOST}/health"
-    echo "  4. 对于高QPS测试，建议使用专业工具如 wrk, ab, 或 vegeta"
+    echo -e "${YELLOW}Tips: Performance Testing Recommendations${NC}"
+    echo "  1. Use --release mode to compile and run the service"
+    echo "  2. Monitor memory usage: watch -n 1 'ps aux | grep actix_production'"
+    echo "  3. Monitor cache status: curl ${HOST}/health"
+    echo "  4. For high QPS testing, recommend using professional tools like wrk, ab, or vegeta"
     echo ""
 }
 
-# 主函数
+# Main function
 main() {
     check_service
     test_single_request
@@ -192,9 +372,8 @@ main() {
     monitor_memory
     
     echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}  性能测试完成！${NC}"
+    echo -e "${GREEN}  Performance testing completed!${NC}"
     echo -e "${GREEN}========================================${NC}"
 }
 
 main
-

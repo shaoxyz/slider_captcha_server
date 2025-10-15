@@ -11,27 +11,24 @@ English | [中文文档](./README_CN.md)
 
 ## 🌟 特性
 
-- **🚀 高性能**: 支持 500+ QPS，优化的图片生成算法
-- **📦 轻量级**: 每个验证码仅 ~7KB（比基于图片的方案小 98%）
-- **🔒 安全**: 自动过期缓存（10分钟）+ 后台清理任务
-- **🎨 随机化**: 每次生成独特的渐变图片
-- **⚡ 生产就绪**: 基于 actix-web 构建，零内存泄漏
-- **🧪 完善测试**: 包含完整的性能测试套件
+- **🚀 高性能**：Captcha 生成工作在后台线程完成，接口响应极轻量
+- **📦 轻量级**：单个验证码约 7KB（较传统方案缩小 98%）
+- **🔒 安全**：自动过期缓存（TTL 可配置）+ 后台清理日志可追踪
+- **🎨 随机化**：每次生成全新的渐变背景与拼块
+- **⚙️ 可配置**：通过环境变量调节线程数、缓存大小、预生成规格
+- **🧪 完整压测**： `bench/run_benchmark.sh` + `wrk` + 集成测试
 
-## 📊 性能指标
+## 📊 性能概览
 
+最新一次在 macOS 4 核 / 8GB 环境下通过 `./bench/run_benchmark.sh`（PNG 压缩为 `CompressionType::Best`）获得的结果：
 
-| 指标               | 目标   | 实际表现     |
-| ------------------ | ------ | ------------ |
-| QPS                | ≥500  | **502+** ✅  |
-| 成功率             | ≥99%  | **99.9%** ✅ |
-| P50延迟            | <20ms  | **~15ms** ✅ |
-| P95延迟            | <50ms  | **~35ms** ✅ |
-| P99延迟            | <100ms | **~60ms** ✅ |
-| 内存占用 (500 QPS) | <200MB | **<50MB** ✅ |
-| 图片大小           | -      | **4-14KB**   |
+| 场景           | Requests/s | P50 延迟 | P99 延迟 | Timeout | 说明 |
+|----------------|-----------:|---------:|---------:|--------:|------|
+| curl 50×100   |      128.70 |   N/A    |   N/A    |       0 | 100 次 curl，总耗时 0.777s，受 CPU 影响明显 |
+| wrk 4×100 10s |      692.76 | 162 ms   | 511 ms   |       0 | 4 线程 / 100 连接，缓存命中率稳定 |
+| wrk 8×200 30s |      833.81 | 329 ms   | 809 ms   |       0 | 8 线程 / 200 连接，CPU 接近满载 |
 
-测试环境: 4核CPU, 8GB RAM
+> 如需进一步提高 QPS，可降低 PNG 压缩等级（例如 `CompressionType::Default`）、提升 `PUZZLE_GENERATOR_CONCURRENCY`、扩大 `PUZZLE_CACHE_PREFILL`，或采用多副本部署配合负载均衡。
 
 ## 🚀 快速开始
 
@@ -45,10 +42,33 @@ cd slider_captcha_server
 ### 运行开发服务器
 
 ```bash
-cargo run --example actix_production --release
+cargo run --bin server --release
 ```
 
-服务器将在 `http://0.0.0.0:8080` 启动
+默认监听 `http://0.0.0.0:8080`
+
+常用环境变量（默认值）：
+
+```bash
+SERVER_HOST=0.0.0.0
+SERVER_PORT=8080
+SERVER_WORKERS=$(nproc)
+PUZZLE_GENERATOR_CONCURRENCY=$(nproc)
+PUZZLE_CACHE_PREFILL=8
+PUZZLE_CACHE_MAX=32
+PUZZLE_PREFILL_DIMENSIONS="500x300"
+PUZZLE_SOLUTION_TTL_SECS=600
+PUZZLE_CACHE_TTL_SECS=300
+CLEANUP_INTERVAL_SECS=60
+RUST_LOG=info
+```
+
+示例：
+
+```bash
+PUZZLE_PREFILL_DIMENSIONS="500x300,400x240" PUZZLE_GENERATOR_CONCURRENCY=6 \
+  cargo run --bin server --release
+```
 
 ### API 使用
 
@@ -102,9 +122,8 @@ curl http://127.0.0.1:8080/health
 
 ```json
 {
-  "status": "healthy",
-  "cache_size": 1234,
-  "uptime": "running"
+  "status": "ok",
+  "prefill_sizes": [[500,300],[400,240]]
 }
 ```
 
@@ -133,59 +152,17 @@ for y in 0..height {
 - 每次唯一（随机颜色）
 - 无需存储（按需生成）
 
-### 2. 缓存过期机制（三层防护）
+### 2. 后台生成器与缓存
 
-#### 第一层：时间戳标记
+- `PUZZLE_GENERATOR_CONCURRENCY` 控制的工作线程使用 `spawn_blocking` 生成验证码并编码 PNG/base64。
+- `/puzzle` 处理逻辑仅从 `ExpiringCache<(w,h), PuzzleImages>` 弹出已有数据；若为空则返回 503 并异步排队生成。
+- 缓存采用 TTL + LRU 队列，`cleanup()` 会定期统计并清理过期条目。
+- 通过环境变量可调整 TTL、预生成数量、缓存容量等。
 
-```rust
-struct CacheEntry {
-    solution: f64,
-    expires_at: u64,  // Unix时间戳 + 600秒
-}
-```
+### 3. 并发结构
 
-#### 第二层：验证时检查
-
-```rust
-if entry.expires_at <= now {
-    return Err("验证码已过期");
-}
-```
-
-#### 第三层：后台清理
-
-```rust
-// 每60秒运行一次
-async fn cleanup_task(state: State) {
-    let mut interval = time::interval(Duration::from_secs(60));
-    loop {
-        interval.tick().await;
-        state.solutions.retain(|_, entry| entry.expires_at > now);
-    }
-}
-```
-
-**为什么有效:**
-
-- 无内存泄漏（自动清理）
-- 快速验证（时间戳检查）
-- 可扩展（DashMap 并发访问）
-
-### 3. 无锁并发
-
-```rust
-// 传统方式（性能瓶颈）
-Arc<Mutex<HashMap<String, CacheEntry>>>  ❌
-
-// 我们的方式（可扩展）
-Arc<DashMap<String, CacheEntry>>  ✅
-```
-
-**DashMap** 使用分片锁定：
-
-- 每个分片有独立的锁
-- 读写操作不互相阻塞
-- 完美适用于高并发场景
+- `DashMap` 用于存放验证码答案和各尺寸的缓存队列；无全局锁瓶颈。
+- 所有生成操作都在后台线程执行，Actix worker 仅负责 JSON 序列化和响应。
 
 ### 4. PNG 优化
 
@@ -201,27 +178,16 @@ PngEncoder::new_with_quality(
 
 ## 🧪 性能测试
 
-### 使用 Rust 测试工具
+### 压测工具
 
-```bash
-# 启动服务器
-cargo run --example actix_production --release
-
-# 在另一个终端运行测试
-cargo run --example benchmark --release
-```
-
-### 使用 Shell 脚本
+| 工具       | 位置                     | 说明                            |
+| ---------- | ------------------------ | ------------------------------- |
+| Shell 脚本 | `bench/run_benchmark.sh` | 推荐使用，包含 curl + wrk 流程  |
+| wrk 脚本   | `bench/wrk_test.lua`     | 被 Shell 脚本调用，也可单独使用 |
 
 ```bash
 ./bench/run_benchmark.sh
-```
-
-### 使用 wrk（如果已安装）
-
-```bash
-brew install wrk  # macOS
-wrk -t4 -c200 -d30s --latency http://127.0.0.1:8080/puzzle
+wrk -t4 -c100 -d10s --latency -s bench/wrk_test.lua http://127.0.0.1:8080/puzzle
 ```
 
 ## 📁 项目结构
@@ -229,19 +195,21 @@ wrk -t4 -c200 -d30s --latency http://127.0.0.1:8080/puzzle
 ```
 slider_captcha_server/
 ├── src/
-│   └── lib.rs              # 核心库（图片生成逻辑）
-├── examples/
-│   ├── actix.rs            # 基础示例
-│   ├── actix_production.rs # 生产服务器 ⭐
-│   ├── benchmark.rs        # 性能测试工具 ⭐
-│   └── generate_random.rs  # 图片生成测试
+│   ├── bin/server.rs       # 生产入口
+│   ├── cache.rs
+│   ├── config.rs
+│   ├── generator/
+│   ├── puzzle.rs
+│   └── lib.rs
 ├── bench/
-│   ├── README.md           # 测试文档
-│   ├── run_benchmark.sh    # Shell 测试脚本
-│   └── wrk_test.lua        # wrk 配置
-├── test/
-│   └── *.png               # 生成的示例图片
-└── README.md
+│   ├── run_benchmark.sh
+│   └── wrk_test.lua
+├── examples/
+│   └── generate_random.rs
+├── tests/
+│   ├── cache_tests.rs
+│   └── generator_tests.rs
+└── docker-compose*.yml
 ```
 
 ## 🎯 客户端集成
@@ -275,26 +243,14 @@ SliderCaptchaClient(
 
 ## 🚢 部署
 
-### Docker
-
-```dockerfile
-FROM rust:1.75-slim as builder
-WORKDIR /app
-COPY . .
-RUN cargo build --example actix_production --release
-
-FROM debian:bookworm-slim
-COPY --from=builder /app/target/release/examples/actix_production /app/server
-EXPOSE 8080
-CMD ["/app/server"]
-```
-
-构建和运行:
+仓库提供了基于 `rust:1.90-slim` 的多阶段 Dockerfile，默认构建 `server` 二进制。
 
 ```bash
-docker build -t slider-captcha .
-docker run -p 8080:8080 slider-captcha
+docker compose build --no-cache
+docker compose up -d
 ```
+
+可在 `docker-compose.prod.yml` 中通过环境变量调整线程数、缓存容量等参数。
 
 ### systemd 服务
 
@@ -418,3 +374,4 @@ GPL-3.0 许可证 - 详见 [LICENSE](LICENSE)
 ---
 
 用 ❤️ 制作，由 Claude AI 优化
+

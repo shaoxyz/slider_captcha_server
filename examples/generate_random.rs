@@ -51,8 +51,14 @@ fn main() {
     println!("\nSolution information:");
     println!("- X position (relative): {:.4}", slider_puzzle.x);
     println!("- Y position (relative): {:.4}", slider_puzzle.y);
-    println!("- X position (pixels): {:.0}px", slider_puzzle.x * width as f64);
-    println!("- Y position (pixels): {:.0}px", slider_puzzle.y * height as f64);
+    println!(
+        "- X position (pixels): {:.0}px",
+        slider_puzzle.x * width as f64
+    );
+    println!(
+        "- Y position (pixels): {:.0}px",
+        slider_puzzle.y * height as f64
+    );
 
     println!("\nFile size statistics:");
     println!("- Total size: {}KB", (puzzle_size + piece_size) / 1024);

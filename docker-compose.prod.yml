@@ -1,0 +1,39 @@
+services:
+  slider-captcha:
+    build: .
+    image: slider-captcha:latest
+    container_name: slider-captcha-server
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '8'          # 增加CPU限制
+          memory: 4G         # 增加内存限制
+        reservations:
+          cpus: '4'          # 增加CPU预留
+          memory: 2G         # 增加内存预留
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    environment:
+      - RUST_LOG=info
+      - RUST_BACKTRACE=1
+      - SERVER_WORKERS=4
+      - PUZZLE_GENERATOR_CONCURRENCY=4
+      - PUZZLE_CACHE_PREFILL=12
+      - PUZZLE_CACHE_MAX=48
+      - PUZZLE_PREFILL_DIMENSIONS=500x300,400x240
+    # 添加系统调优参数
+    sysctls:
+      - net.core.somaxconn=65535
+      - net.ipv4.tcp_max_syn_backlog=65535
+    # 添加ulimit设置
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535

@@ -14,10 +14,16 @@ COPY Cargo.toml Cargo.lock ./
 
 # Copy source code
 COPY src ./src
-COPY examples ./examples
+COPY Cargo.lock ./Cargo.lock
+
+# Build dependencies layer
+RUN cargo fetch
+
+# Copy the full project
+COPY . .
 
 # Build for release
-RUN cargo build --example actix_production --release
+RUN cargo build --bin server --release
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -33,7 +39,7 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Copy the binary from builder
-COPY --from=builder /app/target/release/examples/actix_production /app/server
+COPY --from=builder /app/target/release/server /app/server
 
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && \

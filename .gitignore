@@ -21,3 +21,6 @@ server.log
 
 # Generated test images (keep samples in test/ for documentation)
 test/generated_*.png
+
+# Benchmark test data
+bench/test_data/

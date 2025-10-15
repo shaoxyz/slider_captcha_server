@@ -11,27 +11,24 @@ A high-performance slider captcha puzzle creation and verification server design
 
 ## 🌟 Features
 
-- **🚀 High Performance**: Supports 500+ QPS with optimized image generation
-- **📦 Lightweight**: ~7KB per captcha (98% smaller than image-based solutions)
-- **🔒 Secure**: Auto-expiring cache (10 minutes) with background cleanup
-- **🎨 Randomized**: Generates unique gradient-based images every time
-- **⚡ Production Ready**: Built with actix-web, zero memory leaks
-- **🧪 Well Tested**: Complete benchmark suite included
+- **🚀 High Performance**: `/puzzle` handler serves pre-generated puzzles from memory
+- **📦 Lightweight**: ~7KB per captcha (98% smaller than photo-based captchas)
+- **🔒 Secure**: Auto-expiring cache (configurable TTL) with background cleanup
+- **🎨 Randomized**: Unique gradient-based images every request
+- **⚙️ Configurable**: Tune concurrency, cache size, prefill dimensions via env vars
+- **🧪 Benchmarked**: Shell suite (`bench/run_benchmark.sh`) & wrk integration
 
-## 📊 Performance Metrics
+## 📊 Performance Snapshot
 
+Latest local run (macOS 4C/8G, PNG compression `CompressionType::Best`) via `./bench/run_benchmark.sh`:
 
-| Metric           | Target | Achieved     |
-| ---------------- | ------ | ------------ |
-| QPS              | ≥500  | **502+** ✅  |
-| Success Rate     | ≥99%  | **99.9%** ✅ |
-| P50 Latency      | <20ms  | **~15ms** ✅ |
-| P95 Latency      | <50ms  | **~35ms** ✅ |
-| P99 Latency      | <100ms | **~60ms** ✅ |
-| Memory (500 QPS) | <200MB | **<50MB** ✅ |
-| Image Size       | -      | **4-14KB**   |
+| Scenario       | Requests/s | P50 Latency | P99 Latency | Timeouts | Notes                                          |
+| -------------- | ---------: | ----------: | ----------: | -------: | ---------------------------------------------- |
+| curl 50×100   |      128.70 |        N/A  |        N/A  |        0 | 100 curl 请求耗时 0.777s，总体受 CPU 影响 |
+| wrk 4×100 10s |      692.76 |      162 ms |      511 ms |        0 | 4 线程 / 100 连接，缓存命中率稳定          |
+| wrk 8×200 30s |      833.81 |      329 ms |      809 ms |        0 | 8 线程 / 200 连接，CPU 接近满载            |
 
-Tested on: 4-core CPU, 8GB RAM
+> 若要维持更高 QPS，可降低 PNG 压缩等级（如 `CompressionType::Default`）、提升 `PUZZLE_GENERATOR_CONCURRENCY`、扩大 `PUZZLE_CACHE_PREFILL`，或部署多副本并使用负载均衡。
 
 ## 🚀 Quick Start
 
@@ -45,10 +42,33 @@ cd slider_captcha_server
 ### Run Development Server
 
 ```bash
-cargo run --example actix_production --release
+cargo run --bin server --release
 ```
 
-Server will start on `http://0.0.0.0:8080`
+Server listens on `http://0.0.0.0:8080`.
+
+Configurable via environment variables:
+
+```bash
+SERVER_HOST=0.0.0.0
+SERVER_PORT=8080
+SERVER_WORKERS=$(nproc)
+PUZZLE_GENERATOR_CONCURRENCY=$(nproc)
+PUZZLE_CACHE_PREFILL=8
+PUZZLE_CACHE_MAX=32
+PUZZLE_PREFILL_DIMENSIONS="500x300"
+PUZZLE_SOLUTION_TTL_SECS=600
+PUZZLE_CACHE_TTL_SECS=300
+CLEANUP_INTERVAL_SECS=60
+RUST_LOG=info
+```
+
+Example:
+
+```bash
+PUZZLE_PREFILL_DIMENSIONS="500x300,400x240" PUZZLE_GENERATOR_CONCURRENCY=6 \
+  cargo run --bin server --release
+```
 
 ### API Usage
 
@@ -102,9 +122,8 @@ curl http://127.0.0.1:8080/health
 
 ```json
 {
-  "status": "healthy",
-  "cache_size": 1234,
-  "uptime": "running"
+  "status": "ok",
+  "prefill_sizes": [[500,300],[400,240]]
 }
 ```
 
@@ -133,59 +152,17 @@ for y in 0..height {
 - Unique every time (random colors)
 - No storage needed (generated on-demand)
 
-### 2. Cache Expiration (3-Layer Protection)
+### 2. Background Generator & Cache
 
-#### Layer 1: Timestamp Marking
-
-```rust
-struct CacheEntry {
-    solution: f64,
-    expires_at: u64,  // Unix timestamp + 600s
-}
-```
-
-#### Layer 2: Validation-Time Check
-
-```rust
-if entry.expires_at <= now {
-    return Err("Captcha expired");
-}
-```
-
-#### Layer 3: Background Cleanup
-
-```rust
-// Runs every 60 seconds
-async fn cleanup_task(state: State) {
-    let mut interval = time::interval(Duration::from_secs(60));
-    loop {
-        interval.tick().await;
-        state.solutions.retain(|_, entry| entry.expires_at > now);
-    }
-}
-```
-
-**Why This Works:**
-
-- No memory leaks (automatic cleanup)
-- Fast validation (timestamp check)
-- Scalable (DashMap for concurrent access)
+- Dedicated worker tasks (`PUZZLE_GENERATOR_CONCURRENCY`) run `SliderPuzzle::from_dimensions` + PNG/base64 inside `spawn_blocking`.
+- `/puzzle` handler just pops a cached item; misses queue a generation request and respond with 503 instead of blocking.
+- `ExpiringCache<(w,h), PuzzleImages>` keeps per-dimension queues, enforcing TTL on pop and during cleanup.
+- A periodic job (`CLEANUP_INTERVAL_SECS`) runs via `spawn_blocking` and logs removed/remaining entries.
 
 ### 3. Lock-Free Concurrency
 
-```rust
-// Traditional approach (bottleneck)
-Arc<Mutex<HashMap<String, CacheEntry>>>  ❌
-
-// Our approach (scalable)
-Arc<DashMap<String, CacheEntry>>  ✅
-```
-
-**DashMap** uses sharded locking:
-
-- Each shard has its own lock
-- Read/write operations don't block each other
-- Perfect for high-concurrency scenarios
+- `DashMap` backs solution storage and the multi-queue cache; no coarse-grained mutexes.
+- Cache operations are O(1) amortized, limited only by per-key queue length.
 
 ### 4. PNG Optimization
 
@@ -201,27 +178,18 @@ Result: **98%+ size reduction** compared to photo-based captchas
 
 ## 🧪 Performance Testing
 
-### Using Rust Benchmark Tool
+### Benchmark Tooling
 
-```bash
-# Start server
-cargo run --example actix_production --release
+| Tool         | Location                 | Status                           |
+| ------------ | ------------------------ | -------------------------------- |
+| Shell suite  | `bench/run_benchmark.sh` | ✅ Recommended                   |
+| wrk script   | `bench/wrk_test.lua`     | ✅ Used by shell suite           |
 
-# In another terminal, run benchmark
-cargo run --example benchmark --release
-```
-
-### Using Shell Script
+Usage:
 
 ```bash
 ./bench/run_benchmark.sh
-```
-
-### Using wrk (if installed)
-
-```bash
-brew install wrk  # macOS
-wrk -t4 -c200 -d30s --latency http://127.0.0.1:8080/puzzle
+wrk -t4 -c100 -d10s --latency -s bench/wrk_test.lua http://127.0.0.1:8080/puzzle
 ```
 
 ## 📁 Project Structure
@@ -229,18 +197,21 @@ wrk -t4 -c200 -d30s --latency http://127.0.0.1:8080/puzzle
 ```
 slider_captcha_server/
 ├── src/
-│   └── lib.rs              # Core library (image generation logic)
-├── examples/
-│   ├── actix.rs            # Basic example
-│   ├── actix_production.rs # Production server ⭐
-│   ├── benchmark.rs        # Performance testing tool ⭐
-│   └── generate_random.rs  # Image generation test
+│   ├── bin/server.rs       # Production entrypoint
+│   ├── cache.rs
+│   ├── config.rs
+│   ├── generator/
+│   ├── puzzle.rs
+│   └── lib.rs
 ├── bench/
-│   ├── README.md           # Testing documentation
-│   ├── run_benchmark.sh    # Shell benchmark script
-│   └── wrk_test.lua        # wrk configuration
-├── test/
-│   └── *.png               # Generated sample images
+│   ├── run_benchmark.sh
+│   └── wrk_test.lua
+├── examples/
+│   └── generate_random.rs
+├── tests/
+│   ├── cache_tests.rs
+│   └── generator_tests.rs
+├── docker-compose*.yml
 └── README.md
 ```
 
@@ -277,24 +248,14 @@ For more details, see the [Flutter slider_captcha package](https://pub.dev/packa
 
 ### Docker
 
-```dockerfile
-FROM rust:1.75-slim as builder
-WORKDIR /app
-COPY . .
-RUN cargo build --example actix_production --release
-
-FROM debian:bookworm-slim
-COPY --from=builder /app/target/release/examples/actix_production /app/server
-EXPOSE 8080
-CMD ["/app/server"]
-```
-
-Build and run:
+Multi-stage Dockerfile targets `rust:1.90-slim` and the `server` binary:
 
 ```bash
-docker build -t slider-captcha .
-docker run -p 8080:8080 slider-captcha
+docker compose build --no-cache
+docker compose up -d
 ```
+
+Tune via `docker-compose.prod.yml` by setting env vars (workers, cache sizes, prefill dimensions, etc.).
 
 ### systemd Service
 
@@ -309,7 +270,7 @@ After=network.target
 Type=simple
 User=www-data
 WorkingDirectory=/opt/slider_captcha_server
-ExecStart=/opt/slider_captcha_server/target/release/examples/actix_production
+ExecStart=/opt/slider_captcha_server/target/release/server
 Restart=always
 
 [Install]
@@ -418,3 +379,4 @@ If you encounter any issues or have questions, please [open an issue](https://gi
 ---
 
 Made with ❤️ and optimized with Claude AI
+
