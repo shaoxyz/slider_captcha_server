@@ -111,7 +111,7 @@ async fn verify_handler(
                 HttpResponse::BadRequest().json(serde_json::json!({
                     "error": "Captcha expired"
                 }))
-            } else if verify_puzzle(entry.solution, x, 0.01) {
+            } else if verify_puzzle(entry.solution, x, 0.05) {
                 info!(id = %id, elapsed_ms = request_start.elapsed().as_millis(), "Captcha solved");
                 HttpResponse::Ok().json(serde_json::json!({
                     "success": true,
