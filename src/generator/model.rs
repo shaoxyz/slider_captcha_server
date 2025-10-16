@@ -16,6 +16,7 @@ pub struct PuzzleImages {
 pub struct CachedSolution {
     pub solution: f64,
     pub expires_at: u64,
+    pub attempts: u32,  // 尝试次数
 }
 
 pub fn image_to_base64(image: image::DynamicImage) -> String {

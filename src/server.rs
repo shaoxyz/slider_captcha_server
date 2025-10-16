@@ -99,7 +99,7 @@ async fn verify_handler(
     let id = payload.id.clone();
     let x = payload.x;
 
-    match state.generator.take_solution(&id) {
+    match state.generator.get_solution(&id) {
         Some(entry) => {
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -108,21 +108,38 @@ async fn verify_handler(
 
             if entry.expires_at <= now {
                 warn!(%id, "Solution expired");
+                state.generator.remove_solution(&id);
                 HttpResponse::BadRequest().json(serde_json::json!({
                     "error": "Captcha expired"
                 }))
             } else if verify_puzzle(entry.solution, x, 0.05) {
                 info!(id = %id, elapsed_ms = request_start.elapsed().as_millis(), "Captcha solved");
+                state.generator.remove_solution(&id);
                 HttpResponse::Ok().json(serde_json::json!({
                     "success": true,
                     "message": "Verification successful"
                 }))
             } else {
-                warn!(id = %id, submitted = %x, expected = %entry.solution, "Incorrect solution");
-                HttpResponse::BadRequest().json(serde_json::json!({
-                    "success": false,
-                    "error": "Verification failed"
-                }))
+                // 验证失败，增加尝试次数
+                let attempts = state.generator.increment_attempts(&id).unwrap_or(0);
+                warn!(id = %id, submitted = %x, expected = %entry.solution, attempts = %attempts, "Incorrect solution");
+                
+                if attempts >= 5 {
+                    // 5次失败后删除solution
+                    state.generator.remove_solution(&id);
+                    HttpResponse::BadRequest().json(serde_json::json!({
+                        "success": false,
+                        "error": "Too many failed attempts, please request a new captcha",
+                        "attempts": attempts
+                    }))
+                } else {
+                    HttpResponse::BadRequest().json(serde_json::json!({
+                        "success": false,
+                        "error": "Verification failed",
+                        "attempts": attempts,
+                        "remaining": 5 - attempts
+                    }))
+                }
             }
         }
         None => {

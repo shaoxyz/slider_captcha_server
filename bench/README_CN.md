@@ -45,7 +45,33 @@ chmod +x bench/run_benchmark.sh
 - 高负载测试 (500 QPS目标)
 - 完整流程测试 (生成+验证)
 
-### 3. wrk 专用脚本
+### 3. 批量功能测试脚本 (新增)
+**文件**: `bench/batch_test_puzzle.py` 和 `bench/batch_test_solution.py`
+
+Python 脚本用于批量功能测试，支持保存图片和验证结果。
+
+```bash
+# 快速开始（一键测试）
+./bench/quick_test.sh
+
+# 或手动使用
+# 1. 生成 10 个验证码
+python3 bench/batch_test_puzzle.py -n 10
+
+# 2. 交互式测试验证接口
+python3 bench/batch_test_solution.py -i
+```
+
+**功能特性**:
+- ✅ 批量生成验证码并保存图片（PNG/JPG）
+- ✅ 保存测试数据为 JSON（包含 id、坐标等）
+- ✅ 交互式/自动化验证测试
+- ✅ 支持生产环境测试（可配置 host）
+- ✅ 详细的测试报告和结果统计
+
+📖 **详细文档**: [TESTING_GUIDE.md](./TESTING_GUIDE.md)
+
+### 4. wrk 专用脚本
 **文件**: `bench/wrk_test.lua`
 
 wrk性能测试的Lua脚本，提供详细的统计报告。

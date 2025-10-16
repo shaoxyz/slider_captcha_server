@@ -24,3 +24,5 @@ test/generated_*.png
 
 # Benchmark test data
 bench/test_data/
+
+test_results/

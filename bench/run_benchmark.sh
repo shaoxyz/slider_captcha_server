@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-HOST=${HOST:-"http://127.0.0.1:8080"}
+HOST=${HOST:-"http://101.126.148.100:8080"}
 PUZZLE_URL="${HOST}/puzzle"
 VERIFY_URL="${HOST}/puzzle/solution"
 

@@ -132,12 +132,31 @@ impl PuzzleGenerator {
             CachedSolution {
                 solution,
                 expires_at,
+                attempts: 0,
             },
         );
     }
 
-    pub fn take_solution(&self, id: &str) -> Option<CachedSolution> {
+    pub fn get_solution(&self, id: &str) -> Option<CachedSolution> {
+        self.solutions.get(id).map(|entry| entry.value().clone())
+    }
+
+    pub fn increment_attempts(&self, id: &str) -> Option<u32> {
+        if let Some(mut entry) = self.solutions.get_mut(id) {
+            entry.attempts += 1;
+            Some(entry.attempts)
+        } else {
+            None
+        }
+    }
+
+    pub fn remove_solution(&self, id: &str) -> Option<CachedSolution> {
         self.solutions.remove(id).map(|(_, value)| value)
+    }
+
+    // 保持向后兼容
+    pub fn take_solution(&self, id: &str) -> Option<CachedSolution> {
+        self.remove_solution(id)
     }
 
     pub fn cache_len(&self, key: &(u32, u32)) -> usize {
