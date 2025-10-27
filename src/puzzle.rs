@@ -84,7 +84,8 @@ impl SliderPuzzle {
         let piece_height = height / 5;
 
         let mut rng = rand::thread_rng();
-        let start_x = rng.gen_range(0..(width - piece_width));
+        let min_start_x = piece_width.min(width.saturating_sub(piece_width));
+        let start_x = rng.gen_range(min_start_x..(width - piece_width));
         let start_y = rng.gen_range(piece_height..(2 * piece_height));
 
         let mut puzzle_piece = DynamicImage::new_rgb8(piece_width, piece_height);
