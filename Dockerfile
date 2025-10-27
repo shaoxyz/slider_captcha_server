@@ -13,7 +13,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 
 # Create a dummy main.rs to build dependencies
-RUN mkdir src && \
+RUN mkdir -p src/bin && \
     echo "fn main() {}" > src/main.rs && \
     echo "fn main() {}" > src/bin/server.rs
 
