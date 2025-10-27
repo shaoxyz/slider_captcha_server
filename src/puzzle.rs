@@ -8,6 +8,7 @@ pub struct SliderPuzzle {
     pub x: f64,
     pub y: f64,
     pub track_x: f64,
+    pub track_span_ratio: f64,
 }
 
 impl SliderPuzzle {
@@ -122,6 +123,7 @@ impl SliderPuzzle {
             y: (start_y as f64 / height as f64),
             x: (start_x as f64 / width as f64),
             track_x: (start_x as f64 / track_width as f64),
+            track_span_ratio: (track_width as f64 / width as f64),
         })
     }
 }

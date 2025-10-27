@@ -115,9 +115,15 @@ async fn verify_handler(
                 }))
             } else {
                 let matched_primary = verify_puzzle(entry.solution, x, 0.02);
+
                 let matched_track = entry
                     .track_solution
-                    .map(|track| verify_puzzle(track, x, 0.02))
+                    .map(|track| {
+                        let factor = track / entry.solution.max(1e-6);
+                        let scaled = track * factor;
+                        let normalized = if scaled.is_finite() { scaled } else { track };
+                        verify_puzzle(normalized, x, 0.02)
+                    })
                     .unwrap_or(false);
 
                 if matched_primary || matched_track {
