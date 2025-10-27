@@ -102,11 +102,12 @@ impl PuzzleGenerator {
         rx.recv().await
     }
 
-    pub fn cache_solution(&self, id: String, solution: f64, expires_at: u64) {
+    pub fn cache_solution(&self, id: String, solution: f64, track_solution: Option<f64>, expires_at: u64) {
         self.solutions.insert(
             id,
             CachedSolution {
                 solution,
+                track_solution,
                 expires_at,
                 attempts: 0,
             },

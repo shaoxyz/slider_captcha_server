@@ -15,6 +15,7 @@ pub struct PuzzleImages {
 #[derive(Clone, Debug)]
 pub struct CachedSolution {
     pub solution: f64,
+    pub track_solution: Option<f64>,
     pub expires_at: u64,
     pub attempts: u32,  // 尝试次数
 }

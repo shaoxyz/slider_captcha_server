@@ -59,10 +59,11 @@ async fn puzzle_handler(
             let expires_at = now + state.config.solution_ttl.as_secs();
 
             let solution = images.slider.x;
+            let track_solution = images.slider.track_x;
 
             state
                 .generator
-                .cache_solution(id.clone(), solution, expires_at);
+                .cache_solution(id.clone(), solution, Some(track_solution), expires_at);
 
             let response = serde_json::json!({
                 "puzzle_image": &*images.puzzle_b64,
@@ -112,38 +113,57 @@ async fn verify_handler(
                 HttpResponse::BadRequest().json(serde_json::json!({
                     "error": "Captcha expired"
                 }))
-            } else if verify_puzzle(entry.solution, x, 0.02) {
-                info!(id = %id, elapsed_ms = request_start.elapsed().as_millis(), "Captcha solved");
-                
-                // 根据配置决定是否立即删除缓存
-                if state.config.immediate_cache_cleanup {
-                    state.generator.remove_solution(&id);
-                }
-                
-                HttpResponse::Ok().json(serde_json::json!({
-                    "success": true,
-                    "message": "Verification successful"
-                }))
             } else {
-                // 验证失败，增加尝试次数
-                let attempts = state.generator.increment_attempts(&id).unwrap_or(0);
-                warn!(id = %id, submitted = %x, expected = %entry.solution, attempts = %attempts, "Incorrect solution");
-                
-                if attempts >= 5 {
-                    // 5次失败后删除solution
-                    state.generator.remove_solution(&id);
-                    HttpResponse::BadRequest().json(serde_json::json!({
-                        "success": false,
-                        "error": "Too many failed attempts, please request a new captcha",
-                        "attempts": attempts
+                let matched_primary = verify_puzzle(entry.solution, x, 0.02);
+                let matched_track = entry
+                    .track_solution
+                    .map(|track| verify_puzzle(track, x, 0.02))
+                    .unwrap_or(false);
+
+                if matched_primary || matched_track {
+                    let method = if matched_primary { "primary" } else { "track" };
+
+                    info!(
+                        id = %id,
+                        elapsed_ms = request_start.elapsed().as_millis(),
+                        method,
+                        "Captcha solved"
+                    );
+
+                    if state.config.immediate_cache_cleanup {
+                        state.generator.remove_solution(&id);
+                    }
+
+                    HttpResponse::Ok().json(serde_json::json!({
+                        "success": true,
+                        "message": "Verification successful"
                     }))
                 } else {
-                    HttpResponse::BadRequest().json(serde_json::json!({
-                        "success": false,
-                        "error": "Verification failed",
-                        "attempts": attempts,
-                        "remaining": 5 - attempts
-                    }))
+                    let attempts = state.generator.increment_attempts(&id).unwrap_or(0);
+                    warn!(
+                        id = %id,
+                        submitted = %x,
+                        expected_primary = %entry.solution,
+                        expected_track = ?entry.track_solution,
+                        attempts = %attempts,
+                        "Incorrect solution"
+                    );
+
+                    if attempts >= 5 {
+                        state.generator.remove_solution(&id);
+                        HttpResponse::BadRequest().json(serde_json::json!({
+                            "success": false,
+                            "error": "Too many failed attempts, please request a new captcha",
+                            "attempts": attempts
+                        }))
+                    } else {
+                        HttpResponse::BadRequest().json(serde_json::json!({
+                            "success": false,
+                            "error": "Verification failed",
+                            "attempts": attempts,
+                            "remaining": 5 - attempts
+                        }))
+                    }
                 }
             }
         }

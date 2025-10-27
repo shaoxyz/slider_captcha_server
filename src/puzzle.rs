@@ -7,6 +7,7 @@ pub struct SliderPuzzle {
     pub puzzle_piece: image::DynamicImage,
     pub x: f64,
     pub y: f64,
+    pub track_x: f64,
 }
 
 impl SliderPuzzle {
@@ -113,11 +114,14 @@ impl SliderPuzzle {
             }
         }
 
+        let track_width = width.saturating_sub(piece_width).max(1);
+
         Ok(SliderPuzzle {
             cropped_puzzle: cropped_image,
             puzzle_piece,
             y: (start_y as f64 / height as f64),
             x: (start_x as f64 / width as f64),
+            track_x: (start_x as f64 / track_width as f64),
         })
     }
 }
