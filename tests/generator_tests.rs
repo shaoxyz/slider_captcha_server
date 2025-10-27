@@ -15,6 +15,7 @@ fn test_config() -> AppConfig {
         cleanup_interval: std::time::Duration::from_secs(60),
         prefill_dimensions: vec![(200, 200)],
         log_level: "info".into(),
+        immediate_cache_cleanup: false,
     }
 }
 

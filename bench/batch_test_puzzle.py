@@ -277,7 +277,7 @@ def main():
     parser.add_argument(
         '-n', '--count',
         type=int,
-        default=50,
+        default=10,
         help='生成验证码的数量 (默认: 10)'
     )
     

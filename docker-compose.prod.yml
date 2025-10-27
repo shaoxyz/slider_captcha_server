@@ -27,7 +27,7 @@ services:
       - PUZZLE_GENERATOR_CONCURRENCY=4
       - PUZZLE_CACHE_PREFILL=12
       - PUZZLE_CACHE_MAX=48
-      - PUZZLE_PREFILL_DIMENSIONS=500x300,400x240
+      - PUZZLE_PREFILL_DIMENSIONS=500x300,400x200
     # 添加系统调优参数
     sysctls:
       - net.core.somaxconn=65535

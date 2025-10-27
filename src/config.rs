@@ -13,6 +13,7 @@ pub struct AppConfig {
     pub cleanup_interval: Duration,
     pub prefill_dimensions: Vec<(u32, u32)>,
     pub log_level: String,
+    pub immediate_cache_cleanup: bool,
 }
 
 impl AppConfig {
@@ -66,13 +67,18 @@ impl AppConfig {
             .and_then(|raw| raw.parse::<u64>().ok())
             .filter(|secs| *secs > 0)
             .map(Duration::from_secs)
-            .unwrap_or_else(|| Duration::from_secs(60));
+            .unwrap_or_else(|| Duration::from_secs(300));
 
         let prefill_dimensions = parse_prefill_dimensions(
             env::var("PUZZLE_PREFILL_DIMENSIONS").unwrap_or_else(|_| "500x300".to_string()),
         );
 
         let log_level = env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+
+        let immediate_cache_cleanup = env::var("IMMEDIATE_CACHE_CLEANUP")
+            .ok()
+            .and_then(|raw| raw.parse::<bool>().ok())
+            .unwrap_or(true);
 
         AppConfig {
             host,
@@ -86,6 +92,7 @@ impl AppConfig {
             cleanup_interval,
             prefill_dimensions,
             log_level,
+            immediate_cache_cleanup,
         }
     }
 }

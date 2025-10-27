@@ -60,6 +60,7 @@ PUZZLE_PREFILL_DIMENSIONS="500x300"
 PUZZLE_SOLUTION_TTL_SECS=600
 PUZZLE_CACHE_TTL_SECS=300
 CLEANUP_INTERVAL_SECS=60
+IMMEDIATE_CACHE_CLEANUP=true
 RUST_LOG=info
 ```
 
@@ -69,6 +70,23 @@ Example:
 PUZZLE_PREFILL_DIMENSIONS="500x300,400x240" PUZZLE_GENERATOR_CONCURRENCY=6 \
   cargo run --bin server --release
 ```
+
+#### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SERVER_HOST` | `0.0.0.0` | Server bind address |
+| `SERVER_PORT` | `8080` | Server bind port |
+| `SERVER_WORKERS` | `$(nproc)` | Number of Actix worker threads |
+| `PUZZLE_GENERATOR_CONCURRENCY` | `$(nproc)` | Captcha generation concurrency |
+| `PUZZLE_CACHE_PREFILL` | `8` | Prefill count per dimension |
+| `PUZZLE_CACHE_MAX` | `32` | Max cache count per dimension |
+| `PUZZLE_PREFILL_DIMENSIONS` | `"500x300"` | Prefill dimensions, comma-separated |
+| `PUZZLE_SOLUTION_TTL_SECS` | `600` | Solution cache TTL (seconds) |
+| `PUZZLE_CACHE_TTL_SECS` | `300` | Puzzle image cache TTL (seconds) |
+| `CLEANUP_INTERVAL_SECS` | `60` | Cache cleanup interval (seconds) |
+| `IMMEDIATE_CACHE_CLEANUP` | `true` | Whether to immediately delete cache after successful verification |
+| `RUST_LOG` | `info` | Log level |
 
 ### API Usage
 

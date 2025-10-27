@@ -22,3 +22,10 @@ services:
       start_period: 40s
     environment:
       - RUST_LOG=info
+      - RUST_BACKTRACE=1
+      - SERVER_WORKERS=4
+      - PUZZLE_GENERATOR_CONCURRENCY=4
+      - PUZZLE_CACHE_PREFILL=12
+      - PUZZLE_CACHE_MAX=48
+      - PUZZLE_PREFILL_DIMENSIONS=500x300,400x200
+      - IMMEDIATE_CACHE_CLEANUP=false

@@ -9,20 +9,22 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Copy manifests
+# Copy manifests first (for better caching)
 COPY Cargo.toml Cargo.lock ./
+
+# Create a dummy main.rs to build dependencies
+RUN mkdir src && \
+    echo "fn main() {}" > src/main.rs && \
+    echo "fn main() {}" > src/bin/server.rs
+
+# Build dependencies (this layer will be cached if Cargo.toml doesn't change)
+RUN cargo build --bin server --release && \
+    rm -rf src
 
 # Copy source code
 COPY src ./src
-COPY Cargo.lock ./Cargo.lock
 
-# Build dependencies layer
-RUN cargo fetch
-
-# Copy the full project
-COPY . .
-
-# Build for release
+# Build the actual application (only rebuilds if source code changes)
 RUN cargo build --bin server --release
 
 # Runtime stage

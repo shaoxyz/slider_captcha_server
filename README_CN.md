@@ -60,6 +60,7 @@ PUZZLE_PREFILL_DIMENSIONS="500x300"
 PUZZLE_SOLUTION_TTL_SECS=600
 PUZZLE_CACHE_TTL_SECS=300
 CLEANUP_INTERVAL_SECS=60
+IMMEDIATE_CACHE_CLEANUP=true
 RUST_LOG=info
 ```
 
@@ -69,6 +70,23 @@ RUST_LOG=info
 PUZZLE_PREFILL_DIMENSIONS="500x300,400x240" PUZZLE_GENERATOR_CONCURRENCY=6 \
   cargo run --bin server --release
 ```
+
+#### 环境变量说明
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `SERVER_HOST` | `0.0.0.0` | 服务器监听地址 |
+| `SERVER_PORT` | `8080` | 服务器监听端口 |
+| `SERVER_WORKERS` | `$(nproc)` | Actix worker 线程数 |
+| `PUZZLE_GENERATOR_CONCURRENCY` | `$(nproc)` | 验证码生成并发数 |
+| `PUZZLE_CACHE_PREFILL` | `8` | 每个尺寸预生成数量 |
+| `PUZZLE_CACHE_MAX` | `32` | 每个尺寸最大缓存数量 |
+| `PUZZLE_PREFILL_DIMENSIONS` | `"500x300"` | 预生成尺寸，逗号分隔 |
+| `PUZZLE_SOLUTION_TTL_SECS` | `600` | 验证答案缓存时间（秒） |
+| `PUZZLE_CACHE_TTL_SECS` | `300` | 验证码图片缓存时间（秒） |
+| `CLEANUP_INTERVAL_SECS` | `60` | 缓存清理间隔（秒） |
+| `IMMEDIATE_CACHE_CLEANUP` | `true` | 验证成功后是否立即删除缓存 |
+| `RUST_LOG` | `info` | 日志级别 |
 
 ### API 使用
 

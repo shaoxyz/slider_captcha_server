@@ -112,9 +112,14 @@ async fn verify_handler(
                 HttpResponse::BadRequest().json(serde_json::json!({
                     "error": "Captcha expired"
                 }))
-            } else if verify_puzzle(entry.solution, x, 0.05) {
+            } else if verify_puzzle(entry.solution, x, 0.02) {
                 info!(id = %id, elapsed_ms = request_start.elapsed().as_millis(), "Captcha solved");
-                state.generator.remove_solution(&id);
+                
+                // 根据配置决定是否立即删除缓存
+                if state.config.immediate_cache_cleanup {
+                    state.generator.remove_solution(&id);
+                }
+                
                 HttpResponse::Ok().json(serde_json::json!({
                     "success": true,
                     "message": "Verification successful"
