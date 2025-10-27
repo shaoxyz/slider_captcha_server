@@ -166,7 +166,6 @@ async fn health_handler(state: web::Data<AppState>) -> impl Responder {
 
 pub async fn run_server(config: Arc<AppConfig>) -> std::io::Result<()> {
     let generator = Arc::new(PuzzleGenerator::new(config.clone()));
-    generator.fill_cache(&config);
 
     let state = AppState {
         generator: generator.clone(),

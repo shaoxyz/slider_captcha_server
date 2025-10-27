@@ -102,30 +102,6 @@ impl PuzzleGenerator {
         rx.recv().await
     }
 
-    pub fn fill_cache(&self, config: &AppConfig) {
-        for &(width, height) in &config.prefill_dimensions {
-            let current = self.cache.len_for(&(width, height));
-            if current >= config.cache_prefill_per_size {
-                continue;
-            }
-
-            let needed = config.cache_prefill_per_size - current;
-            for _ in 0..needed {
-                let (tx, _) = mpsc::channel(1);
-
-                let request = GenerateRequest {
-                    dimensions: (width, height),
-                    response: tx,
-                };
-
-                if let Err(err) = self.request_tx.try_send(request) {
-                    tracing::warn!(%width, %height, error=?err, "Failed to schedule prefill request");
-                    break;
-                }
-            }
-        }
-    }
-
     pub fn cache_solution(&self, id: String, solution: f64, expires_at: u64) {
         self.solutions.insert(
             id,

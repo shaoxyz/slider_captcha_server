@@ -20,23 +20,9 @@ fn test_config() -> AppConfig {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn generator_prefills_cache() {
-    let config = Arc::new(test_config());
-    let generator = PuzzleGenerator::new(config.clone());
-    generator.fill_cache(&config);
-
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-    assert!(generator.total_cached() > 0);
-}
-
-#[tokio::test(flavor = "current_thread")]
 async fn generator_get_puzzle_returns_value() {
     let config = Arc::new(test_config());
     let generator = PuzzleGenerator::new(config.clone());
-    generator.fill_cache(&config);
-
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     let puzzle = generator.get_puzzle(200, 200).await;
     assert!(puzzle.is_some());
