@@ -74,6 +74,7 @@ async fn puzzle_handler(
             info!(
                 %width,
                 %height,
+                x = %solution,
                 elapsed_ms = request_start.elapsed().as_millis(),
                 cache_size = state.generator.cache_len(&(width, height)),
                 "Puzzle served"
