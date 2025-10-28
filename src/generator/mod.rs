@@ -50,7 +50,6 @@ impl PuzzleGenerator {
 
                     match generation.await {
                         Ok(Ok(images)) => {
-                            cache.insert(dimensions, images.clone());
                             let arc = Arc::new(images);
                             if let Err(err) = response.send(arc).await {
                                 tracing::warn!(dimensions=?dimensions, error=?err, "Failed to deliver generated puzzle");
@@ -59,7 +58,7 @@ impl PuzzleGenerator {
                             tracing::info!(
                                 dimensions=?dimensions,
                                 elapsed_ms = start.elapsed().as_millis(),
-                                "Background puzzle generated"
+                                "On-demand puzzle generated"
                             );
                         }
                         Ok(Err(err)) => {
