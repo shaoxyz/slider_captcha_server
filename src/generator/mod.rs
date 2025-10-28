@@ -27,13 +27,11 @@ impl PuzzleGenerator {
         let (tx, rx) = mpsc::channel::<GenerateRequest>(config.cache_max_per_size * 4);
         let semaphore = Arc::new(Semaphore::new(config.generator_concurrency));
 
-        let cache_dispatch = cache.clone();
         let semaphore_dispatch = semaphore.clone();
 
         spawn(async move {
             let mut rx = rx;
             while let Some(GenerateRequest { dimensions, response }) = rx.recv().await {
-                let cache = cache_dispatch.clone();
                 let semaphore = semaphore_dispatch.clone();
 
                 spawn(async move {
@@ -109,18 +107,24 @@ impl PuzzleGenerator {
             }
 
             let needed = config.cache_prefill_per_size - current;
+            
+            // 预填充直接生成并插入缓存，不通过request channel
             for _ in 0..needed {
-                let (tx, _) = mpsc::channel(1);
-
-                let request = GenerateRequest {
-                    dimensions: (width, height),
-                    response: tx,
-                };
-
-                if let Err(err) = self.request_tx.try_send(request) {
-                    tracing::warn!(%width, %height, error=?err, "Failed to schedule prefill request");
-                    break;
-                }
+                let cache = self.cache.clone();
+                tokio::spawn(async move {
+                    match tokio::task::spawn_blocking(move || generate_puzzle((width, height))).await {
+                        Ok(Ok(images)) => {
+                            cache.insert((width, height), images);
+                            tracing::debug!(width, height, "Prefill puzzle cached");
+                        }
+                        Ok(Err(err)) => {
+                            tracing::warn!(width, height, error=?err, "Failed to generate prefill puzzle");
+                        }
+                        Err(err) => {
+                            tracing::error!(width, height, error=?err, "Prefill generation task error");
+                        }
+                    }
+                });
             }
         }
     }
